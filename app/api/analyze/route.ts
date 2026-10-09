@@ -6,24 +6,29 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function POST(request: Request) {
   try {
-    const { text } = await request.json();
+    const { text, history } = await request.json();
 
     if (!text || typeof text !== 'string') {
-      return NextResponse.json({ error: 'Journal text is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Journal text or message is required' }, { status: 400 });
     }
 
-    // Prompt engineered specifically for mental wellness risk triage
+    // Prompt engineered for an interactive, empathetic AI therapist + risk triage
     const prompt = `
-      You are an AI mental health risk triage assistant for a university wellness platform. 
-      Analyze the following student journal entry for emotional tone, distress, and psychological risk.
-      
-      Student Journal Entry: "${text}"
+      You are an AI virtual wellness therapist and mental health support guide for university students (specifically at Cavendish University Zambia). 
+      Your goal is to converse empathetically with the student, validate their feelings, offer gentle psychological coping tools, and ask a thoughtful follow-up question to keep the conversation going like a real therapy session.
+
+      At the same time, evaluate their current message for emotional distress and psychological risk.
+
+      Previous conversation history context:
+      ${JSON.stringify(history || [])}
+
+      Current Student Message: "${text}"
 
       You must output a valid JSON object ONLY, with no markdown formatting blocks around it (no \`\`\`json), using this exact structure:
       {
         "riskScore": number between 0.00 and 1.00,
         "riskLevel": "Low" or "Medium" or "High",
-        "feedback": "A compassionate, brief, and constructive feedback or coping suggestion for the student."
+        "feedback": "Your warm, conversational, therapist-like response to the student, including a gentle follow-up question."
       }
       
       Guidelines for risk scoring:
@@ -32,7 +37,7 @@ export async function POST(request: Request) {
       - 0.8 to 1.0 (High): Severe distress, hopelessness, crisis indicators, or explicit mentions of giving up/self-harm.
     `;
 
-    // Call the model (using gemini-2.5-flash for fast, efficient text classification)
+    // Call the model using gemini-3.8-flash
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash',
       contents: prompt,
@@ -49,7 +54,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('LLM Analysis Error:', error);
     return NextResponse.json(
-      { error: 'Failed to process journal analysis' },
+      { error: 'Failed to process therapist chat analysis' },
       { status: 500 }
     );
   }

@@ -3,21 +3,19 @@ import React, { useState } from 'react';
 import { 
   Shield, BookOpen, Users, AlertTriangle, 
   Lock, Sparkles, LogOut, ArrowRight, Activity, 
-  Calendar, MessageSquare, RefreshCw 
+  Calendar, MessageSquare, RefreshCw, Send
 } from 'lucide-react';
 
 // Types
 type Role = 'student' | 'counsellor' | null;
 
-interface JournalEntry {
+interface ChatMessage {
   id: string;
-  date: string;
-  mood: string;
-  moodEmoji: string;
+  sender: 'student' | 'ai';
   text: string;
-  riskScore: number;
-  riskLevel: 'Low' | 'Medium' | 'High';
-  feedback: string;
+  timestamp: string;
+  riskScore?: number;
+  riskLevel?: 'Low' | 'Medium' | 'High';
 }
 
 interface AlertItem {
@@ -36,30 +34,16 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'journal' | 'trends' | 'resources' | 'alerts'>('journal');
 
   const [selectedMood, setSelectedMood] = useState<{ emoji: string; label: string }>({ emoji: '😊', label: 'Good' });
-  const [journalText, setJournalText] = useState('');
+  const [inputText, setInputText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState<JournalEntry | null>(null);
 
-  const [entries, setEntries] = useState<JournalEntry[]>([
+  // Chat messages history for conversational AI therapist mode
+  const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
-      date: 'Oct 4, 2026',
-      mood: 'Calm',
-      moodEmoji: '😌',
-      text: 'Had a productive study session at the library today. Finished my software engineering assignment early.',
-      riskScore: 0.12,
-      riskLevel: 'Low',
-      feedback: 'Great job maintaining your study routine! Keep up the balanced approach.'
-    },
-    {
-      id: '2',
-      date: 'Oct 6, 2026',
-      mood: 'Anxious',
-      moodEmoji: '😰',
-      text: 'So much pressure building up with midterms and tuition fee deadlines approaching. Feeling overwhelmed and losing sleep.',
-      riskScore: 0.68,
-      riskLevel: 'Medium',
-      feedback: 'We noticed you are feeling overwhelmed. Remember to take 5-minute breathing breaks and visit the Cavendish student wellness center if needed.'
+      sender: 'ai',
+      text: 'Hello! I am MindGuard AI, your confidential wellness partner here at Cavendish University. How are you feeling today, and what is on your mind?',
+      timestamp: 'Today, 8:00 AM'
     }
   ]);
 
@@ -81,15 +65,6 @@ export default function Home() {
       riskLevel: 'High',
       snippet: 'Cannot sleep for three days straight. Chest is tight and panic attacks will not stop.',
       status: 'Acknowledged'
-    },
-    {
-      id: 'ALT-8712',
-      studentId: 'STUDENT #114-305',
-      date: 'Oct 5, 2026',
-      riskScore: 0.65,
-      riskLevel: 'Medium',
-      snippet: 'Feeling extremely isolated and lonely away from home this semester.',
-      status: 'Resolved'
     }
   ]);
 
@@ -101,60 +76,79 @@ export default function Home() {
     { emoji: '😢', label: 'Sad' }
   ];
 
-  const handleJournalSubmit = async (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!journalText.trim()) return;
+    if (!inputText.trim()) return;
 
+    const userMsgText = inputText;
+    const timeNow = 'Today, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const userMessage: ChatMessage = {
+      id: Date.now().toString(),
+      sender: 'student',
+      text: `[Mood: ${selectedMood.label} ${selectedMood.emoji}] ${userMsgText}`,
+      timestamp: timeNow
+    };
+
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
+    setInputText('');
     setIsSubmitting(true);
 
     try {
+      // Send conversation history to the AI therapist backend route
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          text: journalText,
-          mood: selectedMood.label,
+          text: userMsgText,
+          history: updatedMessages.map(m => ({ sender: m.sender, text: m.text }))
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to analyze journal entry');
+        throw new Error('Failed to get response from AI therapist');
       }
 
       const data = await response.json();
 
-      const newEntry: JournalEntry = {
-        id: Date.now().toString(),
-        date: 'Today, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        mood: selectedMood.label,
-        moodEmoji: selectedMood.emoji,
-        text: journalText,
+      const aiMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        sender: 'ai',
+        text: data.feedback ?? 'I hear you. Let us take things one step at a time. How can we manage this together?',
+        timestamp: 'Today, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         riskScore: data.riskScore ?? 0.15,
-        riskLevel: data.riskLevel ?? 'Low',
-        feedback: data.feedback ?? 'Thank you for journaling. Keep prioritizing your wellness!'
+        riskLevel: data.riskLevel ?? 'Low'
       };
 
-      if (newEntry.riskLevel === 'High') {
+      setMessages(prev => [...prev, aiMessage]);
+
+      // If high risk is detected, automatically log a confidential alert for the counsellor dashboard
+      if (data.riskLevel === 'High') {
         const newAlert: AlertItem = {
           id: `ALT-${Math.floor(1000 + Math.random() * 9000)}`,
           studentId: 'STUDENT #113-145 (You)',
           date: 'Just now',
-          riskScore: newEntry.riskScore,
+          riskScore: data.riskScore,
           riskLevel: 'High',
-          snippet: journalText.substring(0, 90) + '...',
+          snippet: userMsgText.substring(0, 90) + '...',
           status: 'Pending'
         };
-        setAlerts([newAlert, ...alerts]);
+        setAlerts(prev => [newAlert, ...prev]);
       }
 
-      setEntries([newEntry, ...entries]);
-      setAnalysisResult(newEntry);
-      setJournalText('');
     } catch (error) {
-      console.error('Error submitting journal:', error);
-      alert('There was an error connecting to the AI analysis service. Please try again.');
+      console.error('Chat error:', error);
+      const fallbackAiMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        sender: 'ai',
+        text: 'I am having a brief moment connecting to the secure server, but please remember your well-being matters. Feel free to visit the Cavendish student wellness center.',
+        timestamp: 'Today, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        riskLevel: 'Low'
+      };
+      setMessages(prev => [...prev, fallbackAiMessage]);
     } finally {
       setIsSubmitting(false);
     }
@@ -211,13 +205,13 @@ export default function Home() {
             <div className="text-center space-y-4 max-w-3xl mb-12">
               <div className="inline-flex items-center space-x-2 bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs sm:text-sm font-semibold border border-indigo-200">
                 <Sparkles className="h-4 w-4 text-indigo-600" />
-                <span>AI-Based Mental Wellness & Early Risk Detection MVP</span>
+                <span>Interactive AI Wellness & Virtual Therapist MVP</span>
               </div>
               <h1 className="text-3xl sm:text-5xl font-extrabold text-slate-900 tracking-tight">
-                Private Journaling & Proactive Support for Students
+                Conversational Support & Proactive Care for Students
               </h1>
               <p className="text-base sm:text-lg text-slate-600">
-                Designed for Cavendish University Zambia. Helping students privately reflect while enabling timely psychological intervention before distress escalates.
+                Designed for Cavendish University Zambia. Chat interactively with an empathetic AI wellness partner while ensuring seamless institutional backup.
               </p>
               <div className="pt-4 flex flex-col sm:flex-row justify-center gap-4">
                 <button 
@@ -225,7 +219,7 @@ export default function Home() {
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-xl shadow-lg transition flex items-center justify-center space-x-2"
                 >
                   <BookOpen className="h-5 w-5" />
-                  <span>Launch Student Journal Portal</span>
+                  <span>Launch Student Therapy Chat</span>
                   <ArrowRight className="h-4 w-4" />
                 </button>
                 <button 
@@ -241,20 +235,20 @@ export default function Home() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-3">
                 <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">
-                  <BookOpen className="h-5 w-5" />
+                  <MessageSquare className="h-5 w-5" />
                 </div>
-                <h3 className="font-bold text-slate-900 text-lg">Private Digital Journal</h3>
+                <h3 className="font-bold text-slate-900 text-lg">Interactive AI Therapist</h3>
                 <p className="text-slate-600 text-sm">
-                  Record daily thoughts, mood selections, and reflections in a secure, stigma-free digital space.
+                  Have back-and-forth therapeutic conversations in real-time with continuous contextual memory.
                 </p>
               </div>
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-3">
                 <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center font-bold">
                   <Activity className="h-5 w-5" />
                 </div>
-                <h3 className="font-bold text-slate-900 text-lg">AI Sentiment & Risk NLP</h3>
+                <h3 className="font-bold text-slate-900 text-lg">Continuous Risk Triage</h3>
                 <p className="text-slate-600 text-sm">
-                  Instant natural language analysis detects emotional markers and provides immediate coping resources.
+                  Advanced NLP assesses emotional markers dynamically throughout the chat session.
                 </p>
               </div>
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-3">
@@ -263,7 +257,7 @@ export default function Home() {
                 </div>
                 <h3 className="font-bold text-slate-900 text-lg">Confidential Alerting</h3>
                 <p className="text-slate-600 text-sm">
-                  High-risk entries securely trigger notifications for university counsellors for proactive triage and care.
+                  High-risk indicators securely notify university counselors for timely professional support.
                 </p>
               </div>
             </div>
@@ -291,8 +285,8 @@ export default function Home() {
                       <BookOpen className="h-5 w-5" />
                     </div>
                     <div className="text-left">
-                      <div className="font-bold text-slate-900">Student Portal</div>
-                      <div className="text-xs text-slate-500">Journal entries, mood tracking & coping tips</div>
+                      <div className="font-bold text-slate-900">Student Portal (Therapy Chat)</div>
+                      <div className="text-xs text-slate-500">Interactive chat, mood tracking & coping tips</div>
                     </div>
                   </div>
                   <ArrowRight className="h-5 w-5 text-slate-400 group-hover:text-indigo-600" />
@@ -332,10 +326,10 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-200 gap-4">
               <div>
                 <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-                  {selectedRole === 'student' ? 'Student Wellness & Journal' : 'Counsellor Risk & Alert Dashboard'}
+                  {selectedRole === 'student' ? 'Student Wellness & Virtual Therapist' : 'Counsellor Risk & Alert Dashboard'}
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-500">
-                  {selectedRole === 'student' ? 'Record daily thoughts securely and receive AI-guided wellness insights.' : 'Monitor flagged student risk entries and coordinate institutional interventions.'}
+                  {selectedRole === 'student' ? 'Chat interactively with MindGuard AI for guidance and stress management.' : 'Monitor flagged student risk entries and coordinate institutional interventions.'}
                 </p>
               </div>
 
@@ -346,13 +340,13 @@ export default function Home() {
                       onClick={() => setActiveTab('journal')}
                       className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === 'journal' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
                     >
-                      New Journal & AI
+                      Therapy Chat
                     </button>
                     <button 
                       onClick={() => setActiveTab('trends')}
                       className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === 'trends' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
                     >
-                      Mood Trends & History
+                      Mood Trends
                     </button>
                     <button 
                       onClick={() => setActiveTab('resources')}
@@ -374,94 +368,111 @@ export default function Home() {
 
             {selectedRole === 'student' && activeTab === 'journal' && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900 mb-1">How are you feeling today?</h3>
-                    <p className="text-xs text-slate-500">Select your current mood and write freely. Your entry is private and analyzed securely.</p>
+                {/* Interactive Chat Interface */}
+                <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col h-`150`">
+                  <div className="border-b border-slate-100 pb-3 mb-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900">Chat with MindGuard AI</h3>
+                      <p className="text-xs text-slate-500">Your secure, confidential virtual wellness counselor.</p>
+                    </div>
+                    <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span>Active Session</span>
+                    </span>
                   </div>
 
-                  <form onSubmit={handleJournalSubmit} className="space-y-5">
-                    <div className="flex space-x-3 overflow-x-auto pb-2">
+                  {/* Messages Scroll Area */}
+                  <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+                    {messages.map((msg) => (
+                      <div 
+                        key={msg.id} 
+                        className={`flex flex-col ${msg.sender === 'student' ? 'items-end' : 'items-start'}`}
+                      >
+                        <div className={`max-w-[85%] p-4 rounded-2xl text-sm leading-relaxed ${
+                          msg.sender === 'student' 
+                            ? 'bg-indigo-600 text-white rounded-br-none shadow-sm' 
+                            : 'bg-slate-100 text-slate-800 rounded-bl-none border border-slate-200'
+                        }`}>
+                          {msg.text}
+                        </div>
+                        <div className="flex items-center space-x-2 mt-1">
+                          <span className="text-[10px] text-slate-400">{msg.timestamp}</span>
+                          {msg.riskLevel && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              msg.riskLevel === 'High' ? 'bg-red-100 text-red-700' :
+                              msg.riskLevel === 'Medium' ? 'bg-amber-100 text-amber-700' :
+                              'bg-emerald-100 text-emerald-700'
+                            }`}>
+                              Risk: {msg.riskLevel}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {isSubmitting && (
+                      <div className="flex items-center space-x-2 text-slate-400 text-xs italic bg-slate-50 p-3 rounded-2xl w-fit border border-slate-100">
+                        <RefreshCw className="h-4 w-4 animate-spin text-indigo-600" />
+                        <span>MindGuard AI is reflecting and preparing a response...</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Message Input & Mood Selector Bar */}
+                  <form onSubmit={handleSendMessage} className="mt-4 pt-3 border-t border-slate-100 space-y-3">
+                    <div className="flex space-x-2 overflow-x-auto pb-1">
                       {moods.map((m) => (
                         <button
                           key={m.label}
                           type="button"
                           onClick={() => setSelectedMood(m)}
-                          className={`flex flex-col items-center justify-center p-3 rounded-xl border transition min-w-18 ${selectedMood.label === m.label ? 'border-indigo-600 bg-indigo-50 text-indigo-800 ring-2 ring-indigo-500/20' : 'border-slate-200 hover:border-slate-300 bg-white'}`}
+                          className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg border text-xs font-medium transition shrink-0 ${
+                            selectedMood.label === m.label 
+                              ? 'border-indigo-600 bg-indigo-50 text-indigo-800 ring-1 ring-indigo-500/20 font-bold' 
+                              : 'border-slate-200 hover:border-slate-300 bg-white text-slate-600'
+                          }`}
                         >
-                          <span className="text-2xl mb-1">{m.emoji}</span>
-                          <span className="text-xs font-medium">{m.label}</span>
+                          <span>{m.emoji}</span>
+                          <span>{m.label}</span>
                         </button>
                       ))}
                     </div>
 
-                    <div className="space-y-2">
-                      <label className="block text-sm font-semibold text-slate-700">Journal Reflection</label>
-                      <textarea
-                        rows={6}
-                        value={journalText}
-                        onChange={(e) => setJournalText(e.target.value)}
-                        placeholder="Write freely about your day, academic stress, thoughts, or feelings..."
-                        className="w-full p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-slate-800 placeholder-slate-400 text-sm resize-none"
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        value={inputText}
+                        onChange={(e) => setInputText(e.target.value)}
+                        placeholder="Type your thoughts, worries, or reply to the AI counselor..."
+                        className="flex-1 p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-slate-800 placeholder-slate-400 text-sm"
                         required
-                      ></textarea>
+                      />
+                      <button
+                        type="submit"
+                        disabled={isSubmitting}
+                        className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white p-3 rounded-xl shadow transition flex items-center justify-center disabled:opacity-50 cursor-pointer"
+                      >
+                        <Send className="h-5 w-5" />
+                      </button>
                     </div>
-
-                    <button
-                      type="submit"
-                      disabled={isSubmitting}
-                      className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-3.5 px-4 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center space-x-2 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
-                    >
-                      {isSubmitting ? (
-                        <>
-                          <RefreshCw className="h-5 w-5 animate-spin text-white" />
-                          <span>Running AI Sentiment & Risk Analysis...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="h-5 w-5 text-indigo-200" />
-                          <span>Save & Analyze Entry</span>
-                        </>
-                      )}
-                    </button>
                   </form>
                 </div>
 
+                {/* Right Side Info & Quick Tips */}
                 <div className="space-y-6">
                   <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
                     <div className="flex items-center space-x-2 text-indigo-700 font-bold">
                       <Sparkles className="h-5 w-5" />
-                      <h4>Latest AI Analysis</h4>
+                      <h4>Therapeutic Support Guide</h4>
                     </div>
-
-                    {analysisResult ? (
-                      <div className="space-y-4 pt-2 border-t border-slate-100">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-slate-500">{analysisResult.date}</span>
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                            analysisResult.riskLevel === 'High' ? 'bg-red-100 text-red-700 border border-red-200' :
-                            analysisResult.riskLevel === 'Medium' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
-                            'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                          }`}>
-                            Risk Level: {analysisResult.riskLevel} ({Math.round(analysisResult.riskScore * 100)}%)
-                          </span>
-                        </div>
-                        <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-700 italic">
-                          &quot;{analysisResult.text.substring(0, 120)}...&quot;
-                        </div>
-                        <div className="space-y-1">
-                          <span className="text-xs font-bold text-slate-800">Personalized Feedback & Guidance:</span>
-                          <p className="text-xs text-slate-600 bg-indigo-50/50 p-3 rounded-xl border border-indigo-100">
-                            {analysisResult.feedback}
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-slate-400 space-y-2">
-                        <MessageSquare className="h-8 w-8 mx-auto opacity-40" />
-                        <p className="text-xs">Submit a journal entry to view instant AI feedback and risk classification.</p>
-                      </div>
-                    )}
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      This chat is designed to help you process academic stress, anxiety, or personal challenges in a judgment-free space.
+                    </p>
+                    <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 space-y-2">
+                      <span className="text-xs font-bold text-indigo-900 block">Confidentiality Guarantee</span>
+                      <p className="text-xs text-indigo-700 leading-relaxed">
+                        Your conversations are private. Only high-risk distress signals trigger proactive university support options.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -472,7 +483,7 @@ export default function Home() {
                 <div className="flex justify-between items-center">
                   <div>
                     <h3 className="text-lg font-bold text-slate-900">Your Emotional & Mood Trends</h3>
-                    <p className="text-xs text-slate-500">Historical view of your recorded reflections.</p>
+                    <p className="text-xs text-slate-500">Historical view of your session reflections.</p>
                   </div>
                   <div className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 rounded-full text-xs font-semibold flex items-center space-x-1">
                     <Calendar className="h-3.5 w-3.5" />
@@ -481,25 +492,14 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-3">
-                  <h4 className="font-bold text-slate-900 text-sm">Recent Journal Log History</h4>
+                  <h4 className="font-bold text-slate-900 text-sm">Recent Therapy Session Logs</h4>
                   <div className="space-y-3">
-                    {entries.map((entry) => (
+                    {messages.filter(m => m.sender === 'student').map((entry) => (
                       <div key={entry.id} className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-xl">{entry.moodEmoji}</span>
-                            <span className="font-bold text-sm text-slate-900">{entry.mood}</span>
-                            <span className="text-xs text-slate-400">{entry.date}</span>
-                          </div>
-                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                            entry.riskLevel === 'High' ? 'bg-red-100 text-red-700' :
-                            entry.riskLevel === 'Medium' ? 'bg-amber-100 text-amber-700' :
-                            'bg-emerald-100 text-emerald-700'
-                          }`}>
-                            Risk: {entry.riskLevel}
-                          </span>
+                          <span className="text-xs font-bold text-slate-800">{entry.timestamp}</span>
                         </div>
-                        <p className="text-xs text-slate-600 line-clamp-2">{entry.text}</p>
+                        <p className="text-xs text-slate-600">{entry.text}</p>
                       </div>
                     ))}
                   </div>
