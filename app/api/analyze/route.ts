@@ -37,9 +37,9 @@ export async function POST(request: Request) {
       - 0.8 to 1.0 (High): Severe distress, hopelessness, crisis indicators, or explicit mentions of giving up/self-harm.
     `;
 
-    // Call the model using gemini-3.8-flash
+    // Call the model using gemini-3.5-flash
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.5-flash',
       contents: prompt,
     });
 
